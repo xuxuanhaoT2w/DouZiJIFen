@@ -15,23 +15,22 @@ export async function POST(request: Request) {
   if (!playerResponse.ok) return Response.json({ error: "未找到玩家或平台不匹配" }, { status: playerResponse.status });
   const players = await playerResponse.json() as { data: Array<{ relationships?: { matches?: { data?: Array<{ id: string }> } } }> };
   const matchIds = players.data.flatMap(player => player.relationships?.matches?.data?.map(match => match.id) || []).filter((value, index, all) => all.indexOf(value) === index).slice(0, 32);
-  let matchId = body.matchId || matchIds[0];
-  if (!body.matchId && body.startAt) {
-    const start = Date.parse(body.startAt);
-    for (const candidate of matchIds) {
-      const probe = await fetch("https://api.pubg.com/shards/" + platform + "/matches/" + encodeURIComponent(candidate), { headers });
-      if (!probe.ok) continue;
-      const probeJson = await probe.json() as { data?: { attributes?: { createdAt?: string } } };
-      if (probeJson.data?.attributes?.createdAt && Date.parse(probeJson.data.attributes.createdAt) >= start) { matchId = candidate; break; }
-    }
+  const selected = body.matchId ? [body.matchId] : matchIds;
+  const start = body.startAt ? Date.parse(body.startAt) : 0;
+  const matches: Array<{ matchId: string; createdAt?: string; won: boolean; players: Array<{ name: string; kills: number; teamKills: number; damage: number }> }> = [];
+  for (const candidate of selected) {
+    const response = await fetch("https://api.pubg.com/shards/" + platform + "/matches/" + encodeURIComponent(candidate), { headers });
+    if (!response.ok) continue;
+    const match = await response.json() as { data?: { attributes?: { createdAt?: string } }; included?: Array<{ type: string; attributes?: { stats?: PubgPlayer } }> };
+    const createdAt = match.data?.attributes?.createdAt;
+    if (start && (!createdAt || Date.parse(createdAt) < start)) continue;
+    const all = (match.included || []).filter(x => x.type === "participant").map(x => x.attributes?.stats).filter((x): x is PubgPlayer => !!x);
+    const anchor = all.find(x => names.some(n => n.toLowerCase() === x.name.toLowerCase()));
+    if (!anchor) continue;
+    const squad = anchor.teamId === undefined ? all.filter(x => names.some(n => n.toLowerCase() === x.name.toLowerCase())) : all.filter(x => x.teamId === anchor.teamId).slice(0, 4);
+    matches.push({ matchId: candidate, createdAt, won: anchor.winPlace === 1, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: x.damageDealt || 0 })) });
   }
-  if (!matchId) return Response.json({ error: "没有可导入的近 14 天已结束对局" }, { status: 404 });
-  const matchResponse = await fetch("https://api.pubg.com/shards/" + platform + "/matches/" + encodeURIComponent(matchId), { headers });
-  if (!matchResponse.ok) return Response.json({ error: "无法读取对局详情" }, { status: matchResponse.status });
-  const match = await matchResponse.json() as { data?: { attributes?: { createdAt?: string } }; included?: Array<{ type: string; attributes?: { stats?: PubgPlayer } }> };
-  const all = (match.included || []).filter(x => x.type === "participant").map(x => x.attributes?.stats).filter((x): x is PubgPlayer => !!x);
-  const anchor = all.find(x => names.some(n => n.toLowerCase() === x.name.toLowerCase()));
-  const squad = anchor?.teamId === undefined ? all.filter(x => names.some(n => n.toLowerCase() === x.name.toLowerCase())) : all.filter(x => x.teamId === anchor.teamId).slice(0, 4);
-  const result = squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: x.damageDealt || 0 }));
-  return Response.json({ matchId, createdAt: match.data?.attributes?.createdAt, won: anchor?.winPlace === 1, players: result });
+  if (!matches.length) return Response.json({ error: "没有可导入的已完成对局，或玩家名称不匹配" }, { status: 404 });
+  const latest = matches[0];
+  return Response.json({ matchId: latest.matchId, createdAt: latest.createdAt, won: latest.won, players: latest.players, matches });
 }
