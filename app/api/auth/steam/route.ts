@@ -1,6 +1,5 @@
-const origin = "https://pubg-bean-arena.bibo-7249.chatgpt.site";
-
-export async function GET() {
+export async function GET(request: Request) {
+  const origin = new URL(request.url).origin;
   const state = crypto.randomUUID();
   const callback = origin + "/api/auth/steam/callback?state=" + encodeURIComponent(state);
   const query = new URLSearchParams({

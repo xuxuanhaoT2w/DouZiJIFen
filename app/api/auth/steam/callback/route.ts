@@ -1,8 +1,7 @@
 import { cookies } from "next/headers";
 
-const origin = "https://pubg-bean-arena.bibo-7249.chatgpt.site";
-
 export async function GET(request: Request) {
+  const origin = new URL(request.url).origin;
   const url = new URL(request.url); const state = url.searchParams.get("state");
   if (!state || state !== (await cookies()).get("steam_openid_state")?.value) return Response.redirect(origin + "/?steam=failed", 302);
   const params = new URLSearchParams(url.searchParams); params.delete("state"); params.set("openid.mode", "check_authentication");
