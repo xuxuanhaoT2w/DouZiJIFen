@@ -13,7 +13,8 @@ function fromBase64Url(value: string) {
 }
 
 async function sessionKey(secret: string) {
-  return crypto.subtle.importKey("raw", encoder.encode(secret), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(secret));
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 export async function encryptSteamId(steamId: string, secret: string) {
