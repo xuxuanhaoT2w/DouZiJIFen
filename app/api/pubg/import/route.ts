@@ -4,10 +4,10 @@ type PubgPlayer = { name: string; kills: number; teamKills: number; damageDealt:
 type MatchItem = { id: string; type: string; attributes?: { stats?: PubgPlayer; URL?: string }; relationships?: { participants?: { data?: Array<{ id: string }> } } };
 
 export async function POST(request: Request) {
-  const body = await request.json() as { platform?: string; players?: string[]; matchId?: string; startAt?: string };
+  const body = await request.json() as { platform?: string; players?: string[]; matchId?: string; startAt?: string; apiKey?: string };
   const platform = (body.platform || "steam").replace(/[^a-z-]/g, "");
   const names = (body.players || []).map((name) => name.trim()).filter(Boolean).slice(0, 4);
-  const key = (env as { PUBG_API_KEY?: string }).PUBG_API_KEY;
+  const key = body.apiKey?.trim() || (env as { PUBG_API_KEY?: string }).PUBG_API_KEY;
   if (!key) return Response.json({ error: "PUBG API 尚未配置密钥" }, { status: 503 });
   if (!names.length) return Response.json({ error: "请先填写游戏昵称" }, { status: 400 });
   const headers = { Authorization: "Bearer " + key, Accept: "application/vnd.api+json" };
