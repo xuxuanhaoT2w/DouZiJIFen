@@ -17,7 +17,9 @@ export async function POST(request: Request) {
   const players = await playerResponse.json() as { data: Array<{ relationships?: { matches?: { data?: Array<{ id: string }> } } }> };
   const matchIds = players.data.flatMap(player => player.relationships?.matches?.data?.map(match => match.id) || []).filter((value, index, all) => all.indexOf(value) === index).slice(0, 32);
   const selected = body.matchId ? [body.matchId] : matchIds;
-  const start = body.startAt ? Date.parse(body.startAt) : 0;
+  // datetime-local has no timezone. Treat the selected query time as Beijing time.
+  const startValue = body.startAt && !/(Z|[+-]\d\d:\d\d)$/.test(body.startAt) ? body.startAt + "+08:00" : body.startAt;
+  const start = startValue ? Date.parse(startValue) : 0;
   const matches: Array<{ matchId: string; createdAt?: string; won: boolean; anchorName: string; players: Array<{ name: string; kills: number; teamKills: number; damage: number }> }> = [];
   for (const candidate of selected) {
     const response = await fetch("https://api.pubg.com/shards/" + platform + "/matches/" + encodeURIComponent(candidate), { headers });
