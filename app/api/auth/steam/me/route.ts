@@ -1,2 +1,9 @@
 import { cookies } from "next/headers";
-export async function GET() { return Response.json({ steamId: (await cookies()).get("steam_id")?.value || null }); }
+import { env } from "cloudflare:workers";
+import { decryptSteamId } from "../../../../lib/steam-session";
+export async function GET() {
+  const secret = (env as { STEAM_SESSION_SECRET?: string }).STEAM_SESSION_SECRET;
+  const token = (await cookies()).get("steam_session")?.value;
+  const steamId = secret && token ? await decryptSteamId(token, secret) : null;
+  return Response.json({ steamId });
+}

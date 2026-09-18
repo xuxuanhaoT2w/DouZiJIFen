@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 
-type PubgPlayer = { name: string; kills: number; revives: number; teamKills: number; damageDealt: number };
+type PubgPlayer = { name: string; kills: number; teamKills: number; damageDealt: number; teamId?: number; winPlace?: number };
 
 export async function POST(request: Request) {
   const body = await request.json() as { platform?: string; players?: string[]; matchId?: string; startAt?: string };
@@ -29,6 +29,9 @@ export async function POST(request: Request) {
   const matchResponse = await fetch("https://api.pubg.com/shards/" + platform + "/matches/" + encodeURIComponent(matchId), { headers });
   if (!matchResponse.ok) return Response.json({ error: "无法读取对局详情" }, { status: matchResponse.status });
   const match = await matchResponse.json() as { data?: { attributes?: { createdAt?: string } }; included?: Array<{ type: string; attributes?: { stats?: PubgPlayer } }> };
-  const result = (match.included || []).filter(x => x.type === "participant").map(x => x.attributes?.stats).filter((x): x is PubgPlayer => !!x).filter(x => names.some(n => n.toLowerCase() === x.name.toLowerCase())).map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: x.damageDealt || 0 }));
-  return Response.json({ matchId, createdAt: match.data?.attributes?.createdAt, players: result });
+  const all = (match.included || []).filter(x => x.type === "participant").map(x => x.attributes?.stats).filter((x): x is PubgPlayer => !!x);
+  const anchor = all.find(x => names.some(n => n.toLowerCase() === x.name.toLowerCase()));
+  const squad = anchor?.teamId === undefined ? all.filter(x => names.some(n => n.toLowerCase() === x.name.toLowerCase())) : all.filter(x => x.teamId === anchor.teamId).slice(0, 4);
+  const result = squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: x.damageDealt || 0 }));
+  return Response.json({ matchId, createdAt: match.data?.attributes?.createdAt, won: anchor?.winPlace === 1, players: result });
 }
