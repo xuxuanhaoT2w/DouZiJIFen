@@ -70,7 +70,7 @@ export async function POST(request: Request) {
         }
       } catch { /* Use the winner fallback if telemetry is temporarily unavailable. */ }
     }
-    matches.push({ matchId: candidate, createdAt, won, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: Math.round(x.damageDealt || 0), alive: won && (!assetUrl || aliveAtTopEight.has(x.name.toLowerCase())) })) });
+    matches.push({ matchId: candidate, createdAt, won, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: Number((x.damageDealt || 0).toFixed(1)), alive: won && (!assetUrl || aliveAtTopEight.has(x.name.toLowerCase())) })) });
   }
   if (!matches.length) return Response.json({ error: "没有可导入的已完成对局，或玩家名称不匹配" }, { status: 404 });
   matches.sort((a, b) => Date.parse(a.createdAt || "") - Date.parse(b.createdAt || ""));
