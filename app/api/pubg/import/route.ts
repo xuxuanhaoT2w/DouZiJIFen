@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     const rosterIds = roster?.relationships?.participants?.data?.map(member => member.id) || [];
     const rosterTeam = rosterIds.map(id => rows.find(row => row.id === id)?.stats).filter((x): x is PubgPlayer => !!x);
     const squad = (rosterTeam.length >= 2 ? rosterTeam : sameTeam.length >= 2 ? sameTeam : [anchor]).slice(0, 4);
-    matches.push({ matchId: candidate, createdAt, won: anchor.winPlace === 1, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: x.damageDealt || 0 })) });
+    matches.push({ matchId: candidate, createdAt, won: anchor.winPlace === 1, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: Math.round(x.damageDealt || 0) })) });
   }
   if (!matches.length) return Response.json({ error: "没有可导入的已完成对局，或玩家名称不匹配" }, { status: 404 });
   matches.sort((a, b) => Date.parse(a.createdAt || "") - Date.parse(b.createdAt || ""));
