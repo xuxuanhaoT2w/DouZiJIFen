@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 
 type PubgPlayer = { name: string; kills: number; teamKills: number; damageDealt: number; teamId?: number; winPlace?: number };
+type MatchItem = { id: string; type: string; attributes?: { stats?: PubgPlayer }; relationships?: { participants?: { data?: Array<{ id: string }> } } };
 
 export async function POST(request: Request) {
   const body = await request.json() as { platform?: string; players?: string[]; matchId?: string; startAt?: string };
@@ -21,18 +22,25 @@ export async function POST(request: Request) {
   for (const candidate of selected) {
     const response = await fetch("https://api.pubg.com/shards/" + platform + "/matches/" + encodeURIComponent(candidate), { headers });
     if (!response.ok) continue;
-    const match = await response.json() as { data?: { attributes?: { createdAt?: string } }; included?: Array<{ type: string; attributes?: { stats?: PubgPlayer } }> };
+    const match = await response.json() as { data?: { attributes?: { createdAt?: string } }; included?: MatchItem[] };
     const createdAt = match.data?.attributes?.createdAt;
     if (start && (!createdAt || Date.parse(createdAt) < start)) continue;
-    const all = (match.included || []).filter(x => x.type === "participant").map(x => x.attributes?.stats).filter((x): x is PubgPlayer => !!x);
-    const anchor = all.find(x => names.some(n => n.toLowerCase() === x.name.toLowerCase()));
-    if (!anchor) continue;
+    const included = match.included || [];
+    const rows = included.filter(x => x.type === "participant" && x.attributes?.stats).map(x => ({ id: x.id, stats: x.attributes!.stats! }));
+    const all = rows.map(row => row.stats);
+    const anchorRow = rows.find(row => names.some(n => n.toLowerCase() === row.stats.name.toLowerCase()));
+    if (!anchorRow) continue;
+    const anchor = anchorRow.stats;
     const anchorTeam = (anchor as PubgPlayer & { team_id?: number | string }).teamId ?? (anchor as PubgPlayer & { team_id?: number | string }).team_id;
     const sameTeam = anchorTeam != null ? all.filter(x => String(((x as PubgPlayer & { team_id?: number | string }).teamId ?? (x as PubgPlayer & { team_id?: number | string }).team_id)) === String(anchorTeam)) : [];
-    const squad = (sameTeam.length >= 2 ? sameTeam : [anchor]).slice(0, 4);
+    const roster = included.find(item => item.type === "roster" && item.relationships?.participants?.data?.some(member => member.id === anchorRow.id));
+    const rosterIds = roster?.relationships?.participants?.data?.map(member => member.id) || [];
+    const rosterTeam = rosterIds.map(id => rows.find(row => row.id === id)?.stats).filter((x): x is PubgPlayer => !!x);
+    const squad = (rosterTeam.length >= 2 ? rosterTeam : sameTeam.length >= 2 ? sameTeam : [anchor]).slice(0, 4);
     matches.push({ matchId: candidate, createdAt, won: anchor.winPlace === 1, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: x.damageDealt || 0 })) });
   }
   if (!matches.length) return Response.json({ error: "没有可导入的已完成对局，或玩家名称不匹配" }, { status: 404 });
-  const latest = matches[0];
+  matches.sort((a, b) => Date.parse(a.createdAt || "") - Date.parse(b.createdAt || ""));
+  const latest = matches[matches.length - 1];
   return Response.json({ matchId: latest.matchId, createdAt: latest.createdAt, won: latest.won, players: latest.players, matches });
 }
