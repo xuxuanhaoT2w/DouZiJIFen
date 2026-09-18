@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 
 type PubgPlayer = { name: string; kills: number; teamKills: number; damageDealt: number; teamId?: number; winPlace?: number };
-type MatchItem = { id: string; type: string; attributes?: { stats?: PubgPlayer }; relationships?: { participants?: { data?: Array<{ id: string }> } } };
+type MatchItem = { id: string; type: string; attributes?: { stats?: PubgPlayer; URL?: string }; relationships?: { participants?: { data?: Array<{ id: string }> } } };
 
 export async function POST(request: Request) {
   const body = await request.json() as { platform?: string; players?: string[]; matchId?: string; startAt?: string };
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   // datetime-local has no timezone. Treat the selected query time as Beijing time.
   const startValue = body.startAt && !/(Z|[+-]\d\d:\d\d)$/.test(body.startAt) ? body.startAt + "+08:00" : body.startAt;
   const start = startValue ? Date.parse(startValue) : 0;
-  const matches: Array<{ matchId: string; createdAt?: string; won: boolean; anchorName: string; players: Array<{ name: string; kills: number; teamKills: number; damage: number }> }> = [];
+  const matches: Array<{ matchId: string; createdAt?: string; won: boolean; anchorName: string; players: Array<{ name: string; kills: number; teamKills: number; damage: number; alive: boolean }> }> = [];
   for (const candidate of selected) {
     const response = await fetch("https://api.pubg.com/shards/" + platform + "/matches/" + encodeURIComponent(candidate), { headers });
     if (!response.ok) continue;
@@ -39,7 +39,26 @@ export async function POST(request: Request) {
     const rosterIds = roster?.relationships?.participants?.data?.map(member => member.id) || [];
     const rosterTeam = rosterIds.map(id => rows.find(row => row.id === id)?.stats).filter((x): x is PubgPlayer => !!x);
     const squad = (rosterTeam.length >= 2 ? rosterTeam : sameTeam.length >= 2 ? sameTeam : [anchor]).slice(0, 4);
-    matches.push({ matchId: candidate, createdAt, won: anchor.winPlace === 1, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: Math.round(x.damageDealt || 0) })) });
+    const won = anchor.winPlace === 1;
+    // Telemetry contains final player deaths. At the first point with <=8 players,
+    // a winner is counted as "吃鸡" only if they had not already been eliminated.
+    const eliminated = new Set<string>();
+    const assetUrl = included.find(item => item.type === "asset")?.attributes?.URL;
+    if (won && assetUrl) {
+      try {
+        const telemetry = await (await fetch(assetUrl)).json() as Array<{ _T?: string; victim?: { name?: string }; victimName?: string }>;
+        let remaining = all.length;
+        for (const event of telemetry) {
+          if (event._T !== "LogPlayerKill" && event._T !== "LogPlayerKillV2") continue;
+          const victim = event.victim?.name || event.victimName;
+          if (!victim || eliminated.has(victim.toLowerCase())) continue;
+          eliminated.add(victim.toLowerCase());
+          remaining -= 1;
+          if (remaining <= 8) break;
+        }
+      } catch { /* Use the winner fallback if telemetry is temporarily unavailable. */ }
+    }
+    matches.push({ matchId: candidate, createdAt, won, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: Math.round(x.damageDealt || 0), alive: won && (!assetUrl || !eliminated.has(x.name.toLowerCase())) })) });
   }
   if (!matches.length) return Response.json({ error: "没有可导入的已完成对局，或玩家名称不匹配" }, { status: 404 });
   matches.sort((a, b) => Date.parse(a.createdAt || "") - Date.parse(b.createdAt || ""));
