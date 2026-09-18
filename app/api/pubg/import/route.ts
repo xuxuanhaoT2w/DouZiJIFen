@@ -43,22 +43,34 @@ export async function POST(request: Request) {
     // Telemetry contains final player deaths. At the first point with <=8 players,
     // a winner is counted as "吃鸡" only if they had not already been eliminated.
     const eliminated = new Set<string>();
+    const aliveAtTopEight = new Set<string>();
     const assetUrl = included.find(item => item.type === "asset")?.attributes?.URL;
     if (won && assetUrl) {
       try {
-        const telemetry = await (await fetch(assetUrl)).json() as Array<{ _T?: string; victim?: { name?: string }; victimName?: string }>;
+        const telemetry = await (await fetch(assetUrl)).json() as Array<{ _T?: string; victim?: { name?: string }; victimName?: string; character?: { name?: string } }>;
         let remaining = all.length;
         for (const event of telemetry) {
-          if (event._T !== "LogPlayerKill" && event._T !== "LogPlayerKillV2") continue;
-          const victim = event.victim?.name || event.victimName;
-          if (!victim || eliminated.has(victim.toLowerCase())) continue;
-          eliminated.add(victim.toLowerCase());
-          remaining -= 1;
-          if (remaining <= 8) break;
+          if (event._T === "LogPlayerKill" || event._T === "LogPlayerKillV2") {
+            const victim = event.victim?.name || event.victimName;
+            if (victim && !eliminated.has(victim.toLowerCase())) {
+              eliminated.add(victim.toLowerCase());
+              remaining -= 1;
+            }
+          }
+          // A recalled player produces a later character-create event. Only undo
+          // an actual earlier elimination; normal match-start create events do nothing.
+          if (event._T === "LogPlayerCreate" || event._T === "LogPlayerRevive") {
+            const returned = event.victim?.name || event.character?.name;
+            if (returned && eliminated.delete(returned.toLowerCase())) remaining += 1;
+          }
+          if (remaining <= 8) {
+            squad.forEach(player => { if (!eliminated.has(player.name.toLowerCase())) aliveAtTopEight.add(player.name.toLowerCase()); });
+            break;
+          }
         }
       } catch { /* Use the winner fallback if telemetry is temporarily unavailable. */ }
     }
-    matches.push({ matchId: candidate, createdAt, won, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: Math.round(x.damageDealt || 0), alive: won && (!assetUrl || !eliminated.has(x.name.toLowerCase())) })) });
+    matches.push({ matchId: candidate, createdAt, won, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: Math.round(x.damageDealt || 0), alive: won && (!assetUrl || aliveAtTopEight.has(x.name.toLowerCase())) })) });
   }
   if (!matches.length) return Response.json({ error: "没有可导入的已完成对局，或玩家名称不匹配" }, { status: 404 });
   matches.sort((a, b) => Date.parse(a.createdAt || "") - Date.parse(b.createdAt || ""));
