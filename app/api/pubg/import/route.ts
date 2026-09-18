@@ -27,8 +27,9 @@ export async function POST(request: Request) {
     const all = (match.included || []).filter(x => x.type === "participant").map(x => x.attributes?.stats).filter((x): x is PubgPlayer => !!x);
     const anchor = all.find(x => names.some(n => n.toLowerCase() === x.name.toLowerCase()));
     if (!anchor) continue;
-    const sameTeam = anchor.teamId != null ? all.filter(x => x.teamId === anchor.teamId) : [];
-    const squad = (sameTeam.length >= 2 ? sameTeam : all.filter(x => names.some(n => n.toLowerCase() === x.name.toLowerCase())).length >= 2 ? all.filter(x => names.some(n => n.toLowerCase() === x.name.toLowerCase())) : all).slice(0, 4);
+    const anchorTeam = (anchor as PubgPlayer & { team_id?: number | string }).teamId ?? (anchor as PubgPlayer & { team_id?: number | string }).team_id;
+    const sameTeam = anchorTeam != null ? all.filter(x => String(((x as PubgPlayer & { team_id?: number | string }).teamId ?? (x as PubgPlayer & { team_id?: number | string }).team_id)) === String(anchorTeam)) : [];
+    const squad = (sameTeam.length >= 2 ? sameTeam : [anchor]).slice(0, 4);
     matches.push({ matchId: candidate, createdAt, won: anchor.winPlace === 1, anchorName: anchor.name, players: squad.map(x => ({ name: x.name, kills: x.kills || 0, teamKills: x.teamKills || 0, damage: x.damageDealt || 0 })) });
   }
   if (!matches.length) return Response.json({ error: "没有可导入的已完成对局，或玩家名称不匹配" }, { status: 404 });
