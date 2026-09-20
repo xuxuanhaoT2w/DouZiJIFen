@@ -28,7 +28,7 @@ jobs:
       - name: Configure production D1 binding
         run: sed -i "s/00000000-0000-4000-8000-000000000000/$D1_DATABASE_ID/g" dist/server/wrangler.json
       - name: Apply database migrations
-        run: npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json --yes
+        run: npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json
       - name: Set PUBG API key
         if: env.PUBG_API_KEY != ''
         run: printf '%s' "$PUBG_API_KEY" | npx wrangler secret put PUBG_API_KEY --config dist/server/wrangler.json
